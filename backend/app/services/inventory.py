@@ -94,10 +94,18 @@ class InventoryService:
         columns: Optional[List[str]] = None,
         order_by: Optional[str] = None,
         descending: bool = False,
+        filters: Optional[List[dict]] = None,
     ) -> QueryResult:
         """
-        Tablo bazlı güvenli sorgu: kolon seçimi + sıralama. Tüm tanımlayıcılar
-        doğrulanır ve köşeli parantezle sarılır (SQL Server quoting).
+        Tablo bazlı güvenli sorgu: kolon seçimi + sıralama + filtre.
+
+        Tüm tanımlayıcılar (tablo/kolon adları) whitelist'ten doğrulanır ve
+        köşeli parantezle sarılır. Filtre DEĞERLERİ asla SQL'e gömülmez;
+        parametre (?) olarak bind edilir — böylece SQL injection imkânsızdır.
+
+        filters formatı: [{"column": "Ad", "op": "contains", "value": "x"}, ...]
+        Desteklenen op: contains, equals, startswith, gt, lt.
+        Birden çok filtre AND ile birleşir.
         """
         _validate_identifier(table_name)
         available = self.list_columns(table_name)
@@ -110,6 +118,8 @@ class InventoryService:
         else:
             select_cols = "*"
 
+        where_clause, params = self._build_where(filters, available)
+
         order_clause = ""
         if order_by:
             if order_by not in available:
@@ -118,8 +128,53 @@ class InventoryService:
             order_clause = f" ORDER BY [{order_by}] {direction}"
 
         top = int(self._settings.inventory_max_rows)
-        sql = f"SELECT TOP ({top}) {select_cols} FROM [{table_name}]{order_clause}"
-        return self._execute(sql)
+        sql = (
+            f"SELECT TOP ({top}) {select_cols} "
+            f"FROM [{table_name}]{where_clause}{order_clause}"
+        )
+        return self._execute(sql, params)
+
+    @staticmethod
+    def _build_where(filters, available):
+        """
+        Filtre listesinden güvenli WHERE cümlesi + parametre listesi üretir.
+        Kolon adı whitelist'ten doğrulanır; değer parametre olarak bind edilir.
+        """
+        if not filters:
+            return "", []
+
+        clauses = []
+        params: list = []
+        for f in filters:
+            col = f.get("column")
+            op = (f.get("op") or "contains").lower()
+            val = f.get("value")
+            if col not in available:
+                raise ValueError(f"Bilinmeyen filtre kolonu: {col!r}")
+            if val is None or val == "":
+                continue
+
+            bracket = f"[{col}]"
+            if op == "equals":
+                clauses.append(f"{bracket} = ?")
+                params.append(val)
+            elif op == "startswith":
+                clauses.append(f"{bracket} LIKE ?")
+                params.append(f"{val}%")
+            elif op == "gt":
+                clauses.append(f"{bracket} > ?")
+                params.append(val)
+            elif op == "lt":
+                clauses.append(f"{bracket} < ?")
+                params.append(val)
+            else:  # contains (varsayılan)
+                # CAST: sayısal/tarih kolonlarında da LIKE çalışsın diye
+                clauses.append(f"CAST({bracket} AS NVARCHAR(MAX)) LIKE ?")
+                params.append(f"%{val}%")
+
+        if not clauses:
+            return "", []
+        return " WHERE " + " AND ".join(clauses), params
 
     def custom_query(self, raw_sql: str) -> QueryResult:
         """SELECT-only guard'dan geçen ham kullanıcı sorgusu."""
@@ -128,10 +183,13 @@ class InventoryService:
         )
         return self._execute(safe.sql)
 
-    def _execute(self, sql: str) -> QueryResult:
+    def _execute(self, sql: str, params: Optional[list] = None) -> QueryResult:
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute(sql)
+            if params:
+                cur.execute(sql, *params)
+            else:
+                cur.execute(sql)
             columns = [d[0] for d in cur.description] if cur.description else []
             fetched = cur.fetchall()
             rows = [list(r) for r in fetched]

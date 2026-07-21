@@ -45,4 +45,22 @@ export const api = {
     }),
   // CSV indirmesi ayrı — blob olarak alınır
   customQueryCsvUrl: '/api/inventory/custom-query/csv',
+
+  brandingStatus: () => req('/api/branding/status'),
+  uploadLogo: async (fileObj) => {
+    const fd = new FormData();
+    fd.append('file', fileObj);
+    const res = await fetch('/api/branding/logo', {
+      method: 'POST',
+      credentials: 'include',
+      body: fd, // Content-Type'ı tarayıcı otomatik ayarlar (multipart boundary)
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+  deleteLogo: () => req('/api/branding/logo', { method: 'DELETE' }),
 };

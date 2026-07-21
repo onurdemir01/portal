@@ -15,6 +15,8 @@ import {
   ToolbarContent,
   ToolbarItem,
   TextArea,
+  TextInput,
+  SearchInput,
   Alert,
   Spinner,
   Pagination,
@@ -23,8 +25,6 @@ import {
 import { Table, Thead, Tr, Th, Tbody, Td } from '@patternfly/react-table';
 import { api } from '../api';
 
-// Yatay kaydırma + hücrelerin alt satıra kaymaması için ortak stil.
-// Tabloyu saran kutu yatay scroll alır; hücreler nowrap olur.
 const scrollBoxStyle = {
   overflowX: 'auto',
   width: '100%',
@@ -52,21 +52,34 @@ function downloadCsv(columns, rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Sonuç tablosu: client-side pagination ile yalnızca aktif sayfayı DOM'a basar.
-// Böylece 5000 satır tek seferde render edilmez; ekran donmaz.
-function ResultTable({ result, visibleColumns }) {
+// Sonuç tablosu: kolon başlığında istemci-taraflı filtre + pagination.
+// colFilters: her kolon için yazılan metin; satırlar bunlara göre (VE) süzülür.
+function ResultTable({ result, visibleColumns, enableColumnFilters = true }) {
   const [page, setPage] = React.useState(1);
   const [perPage, setPerPage] = React.useState(100);
+  const [colFilters, setColFilters] = React.useState({});
 
-  React.useEffect(() => { setPage(1); }, [result]);
+  React.useEffect(() => { setPage(1); setColFilters({}); }, [result]);
 
   if (!result) return null;
 
   const cols = visibleColumns || result.columns;
   const colIndex = cols.map((c) => result.columns.indexOf(c));
 
+  // İstemci tarafı filtre: yüklü satırlar içinde, tüm aktif kolon filtreleri VE.
+  const activeFilters = Object.entries(colFilters).filter(([, v]) => v && v.trim());
+  const filteredRows = activeFilters.length === 0
+    ? result.rows
+    : result.rows.filter((row) =>
+        activeFilters.every(([col, term]) => {
+          const ci = result.columns.indexOf(col);
+          const cell = row[ci];
+          return cell != null && String(cell).toLowerCase().includes(term.toLowerCase());
+        })
+      );
+
   const start = (page - 1) * perPage;
-  const pageRows = result.rows.slice(start, start + perPage);
+  const pageRows = filteredRows.slice(start, start + perPage);
 
   return (
     <>
@@ -74,25 +87,32 @@ function ResultTable({ result, visibleColumns }) {
         <Alert
           variant="warning"
           isInline
-          title={`Sonuç ${result.row_count} satırla sınırlandı; daha fazlası olabilir. Daraltmak için filtre/sorgu kullanın.`}
+          title={`Sonuç ${result.row_count} satırla sınırlandı. Tamamını görmek için yukarıdaki sunucu aramasını kullanın.`}
           style={{ marginBottom: 12 }}
         />
       )}
 
-      <Pagination
-        itemCount={result.rows.length}
-        perPage={perPage}
-        page={page}
-        perPageOptions={[
-          { title: '50', value: 50 },
-          { title: '100', value: 100 },
-          { title: '250', value: 250 },
-          { title: '500', value: 500 },
-        ]}
-        onSetPage={(_e, p) => setPage(p)}
-        onPerPageSelect={(_e, v) => { setPerPage(v); setPage(1); }}
-        isCompact
-      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 14, color: 'var(--pf-v5-global--Color--200)' }}>
+          {activeFilters.length > 0
+            ? `${filteredRows.length} / ${result.rows.length} satır (filtreli)`
+            : `${result.rows.length} satır`}
+        </span>
+        <Pagination
+          itemCount={filteredRows.length}
+          perPage={perPage}
+          page={page}
+          perPageOptions={[
+            { title: '50', value: 50 },
+            { title: '100', value: 100 },
+            { title: '250', value: 250 },
+            { title: '500', value: 500 },
+          ]}
+          onSetPage={(_e, p) => setPage(p)}
+          onPerPageSelect={(_e, v) => { setPerPage(v); setPage(1); }}
+          isCompact
+        />
+      </div>
 
       <div style={scrollBoxStyle}>
         <Table aria-label="Sonuç" variant="compact" gridBreakPoint="">
@@ -102,6 +122,21 @@ function ResultTable({ result, visibleColumns }) {
                 <Th key={c} style={{ whiteSpace: 'nowrap' }}>{c}</Th>
               ))}
             </Tr>
+            {enableColumnFilters && (
+              <Tr>
+                {cols.map((c) => (
+                  <Th key={c} style={{ padding: '4px 8px' }}>
+                    <TextInput
+                      value={colFilters[c] || ''}
+                      onChange={(_e, v) => { setColFilters((p) => ({ ...p, [c]: v })); setPage(1); }}
+                      aria-label={`${c} filtrele`}
+                      placeholder="filtre…"
+                      style={{ minWidth: 90, fontSize: 12, height: 26 }}
+                    />
+                  </Th>
+                ))}
+              </Tr>
+            )}
           </Thead>
           <Tbody>
             {pageRows.map((row, i) => (
@@ -120,7 +155,7 @@ function ResultTable({ result, visibleColumns }) {
       </div>
 
       <Pagination
-        itemCount={result.rows.length}
+        itemCount={filteredRows.length}
         perPage={perPage}
         page={page}
         onSetPage={(_e, p) => setPage(p)}
@@ -140,10 +175,13 @@ function TableBrowser({ tables }) {
   const [result, setResult] = React.useState(null);
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
-  const [colMenuOpen, setColMenuOpen] = React.useState(false);
 
-  // Tablo seçilince otomatik yükle: kolonları çek + veriyi filtresiz getir.
-  const loadTable = React.useCallback(async (t) => {
+  // Sunucu araması: seçili kolon + değer -> backend WHERE ile tüm tablodan çeker
+  const [searchCol, setSearchCol] = React.useState('');
+  const [searchVal, setSearchVal] = React.useState('');
+  const [searchColOpen, setSearchColOpen] = React.useState(false);
+
+  const loadTable = React.useCallback(async (t, filters = null) => {
     setError('');
     setLoading(true);
     setResult(null);
@@ -151,8 +189,7 @@ function TableBrowser({ tables }) {
       const { columns } = await api.inventoryColumns(t);
       setAllColumns(columns);
       setEnabled(Object.fromEntries(columns.map((c) => [c, true])));
-      // Filtresiz, tüm kolonlarla veriyi getir
-      const res = await api.inventoryQuery(t, { columns: null });
+      const res = await api.inventoryQuery(t, { columns: null, filters });
       setResult(res);
     } catch (err) {
       setError(err.message);
@@ -161,7 +198,14 @@ function TableBrowser({ tables }) {
     }
   }, []);
 
-  React.useEffect(() => { if (table) loadTable(table); }, [table, loadTable]);
+  React.useEffect(() => {
+    if (table) { setSearchCol(''); setSearchVal(''); loadTable(table); }
+  }, [table, loadTable]);
+
+  const runServerSearch = () => {
+    if (!searchCol || !searchVal.trim()) { loadTable(table); return; }
+    loadTable(table, [{ column: searchCol, op: 'contains', value: searchVal.trim() }]);
+  };
 
   const visibleColumns = allColumns.filter((c) => enabled[c]);
 
@@ -191,11 +235,8 @@ function TableBrowser({ tables }) {
             </Select>
           </ToolbarItem>
 
-          {/* Kolon aç/kapa artık bir popover içinde — sayfayı doldurmuyor */}
           <ToolbarItem>
             <Popover
-              isVisible={colMenuOpen}
-              shouldClose={() => setColMenuOpen(false)}
               hasAutoWidth
               bodyContent={
                 <div style={{ maxHeight: 320, overflowY: 'auto', minWidth: 220 }}>
@@ -219,17 +260,12 @@ function TableBrowser({ tables }) {
                 </div>
               }
             >
-              <Button variant="secondary" onClick={() => setColMenuOpen((o) => !o)}>
+              <Button variant="secondary">
                 Kolonlar ({visibleColumns.length}/{allColumns.length})
               </Button>
             </Popover>
           </ToolbarItem>
 
-          <ToolbarItem>
-            <Button variant="secondary" onClick={() => loadTable(table)} isDisabled={loading}>
-              Yenile
-            </Button>
-          </ToolbarItem>
           <ToolbarItem>
             <Button
               variant="secondary"
@@ -241,6 +277,46 @@ function TableBrowser({ tables }) {
               )}
             >
               CSV indir
+            </Button>
+          </ToolbarItem>
+        </ToolbarContent>
+      </Toolbar>
+
+      {/* Sunucu araması: tüm tablodan (5000 limitinin ötesinden) çeker */}
+      <Toolbar>
+        <ToolbarContent>
+          <ToolbarItem>
+            <Select
+              isOpen={searchColOpen}
+              selected={searchCol}
+              onSelect={(_e, v) => { setSearchCol(v); setSearchColOpen(false); }}
+              onOpenChange={setSearchColOpen}
+              toggle={(ref) => (
+                <MenuToggle ref={ref} onClick={() => setSearchColOpen((o) => !o)} isExpanded={searchColOpen}>
+                  {searchCol || 'Sunucuda ara: kolon seç'}
+                </MenuToggle>
+              )}
+            >
+              <SelectList style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {allColumns.map((c) => (
+                  <SelectOption key={c} value={c}>{c}</SelectOption>
+                ))}
+              </SelectList>
+            </Select>
+          </ToolbarItem>
+          <ToolbarItem>
+            <SearchInput
+              placeholder="Aranacak değer (tüm tabloda)"
+              value={searchVal}
+              onChange={(_e, v) => setSearchVal(v)}
+              onSearch={runServerSearch}
+              onClear={() => { setSearchVal(''); loadTable(table); }}
+              style={{ minWidth: 260 }}
+            />
+          </ToolbarItem>
+          <ToolbarItem>
+            <Button variant="primary" onClick={runServerSearch} isDisabled={loading}>
+              Sunucuda ara
             </Button>
           </ToolbarItem>
         </ToolbarContent>

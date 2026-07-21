@@ -6,6 +6,7 @@ import { LoginPage } from './pages/LoginPage';
 import { NobetcilerPage } from './pages/NobetcilerPage';
 import { EnvanterlerPage } from './pages/EnvanterlerPage';
 import { SelfServisPage } from './pages/SelfServisPage';
+import { AdminPage } from './pages/AdminPage';
 import { api } from './api';
 
 // Varsayılan envanter tabloları. Admin panelinden görünen adlar (display_name)
@@ -22,11 +23,29 @@ const DEFAULT_TABLES = [
 
 export default function App() {
   const [user, setUser] = React.useState(undefined); // undefined = yükleniyor
+  const [brandingHasLogo, setBrandingHasLogo] = React.useState(false);
   const location = useLocation();
 
   React.useEffect(() => {
     api.me().then(setUser).catch(() => setUser(null));
   }, []);
+
+  const refreshBranding = React.useCallback(() => {
+    api.brandingStatus()
+      .then((s) => {
+        setBrandingHasLogo(s.has_logo);
+        // Favicon'u tazele (logo değişince sekmedeki ikon da güncellensin)
+        if (s.has_logo) {
+          const link = document.querySelector("link[rel='icon']");
+          if (link) link.href = `/api/branding/favicon?t=${Date.now()}`;
+        }
+      })
+      .catch(() => setBrandingHasLogo(false));
+  }, []);
+
+  React.useEffect(() => {
+    if (user) refreshBranding();
+  }, [user, refreshBranding]);
 
   if (user === undefined) {
     return <Bullseye><Spinner /></Bullseye>;
@@ -42,12 +61,15 @@ export default function App() {
   }
 
   return (
-    <AppLayout user={user} flags={{}}>
+    <AppLayout user={user} flags={{}} brandingHasLogo={brandingHasLogo}>
       <Routes>
         <Route path="/" element={<Navigate to="/nobetciler" replace />} />
         <Route path="/nobetciler" element={<NobetcilerPage />} />
         <Route path="/envanterler" element={<EnvanterlerPage tables={DEFAULT_TABLES} />} />
         <Route path="/self-servis" element={<SelfServisPage />} />
+        {user.is_admin && (
+          <Route path="/admin" element={<AdminPage onBrandingChange={refreshBranding} />} />
+        )}
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

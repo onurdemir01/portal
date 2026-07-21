@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Ayrı, hafif bir DB. Örn: sqlite:///./app_data/portal.db veya bir Postgres DSN.
     app_db_url: str = Field("sqlite:///./app_data/portal.db", alias="APP_DB_URL")
 
+    # --- Branding (logo/favicon) ---
+    # Admin panelinden yüklenen logo bu dizine kaydedilir.
+    branding_dir: str = Field("./app_data/branding", alias="BRANDING_DIR")
+
     # --- Ansible / AAP (Self-Servis) — sonra doldurulacak ---
     ansible_base_url: str = Field("", alias="ANSIBLE_BASE_URL")
     ansible_token: str = Field("", alias="ANSIBLE_TOKEN")

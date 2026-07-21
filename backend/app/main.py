@@ -14,14 +14,16 @@ Yetki modeli:
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import List, Optional
 
 import json
 
 logging.basicConfig(level=logging.INFO)
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile, File
+from fastapi.responses import PlainTextResponse, FileResponse, RedirectResponse
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel
 
@@ -31,7 +33,7 @@ from app.security.query_guard import QueryValidationError
 from app.services.inventory import InventoryService, to_csv
 from app.services.nobetci import NobetciService, serialize
 
-app = FastAPI(title="Nöbetçi & Envanter Portalı")
+app = FastAPI(title="Middleware Portal")
 
 
 # --- Oturum yardımcıları ---
@@ -142,6 +144,7 @@ class TableQueryBody(BaseModel):
     columns: Optional[List[str]] = None
     order_by: Optional[str] = None
     descending: bool = False
+    filters: Optional[List[dict]] = None
 
 
 @app.post("/api/inventory/{table}/query")
@@ -158,6 +161,7 @@ def inventory_query(
             columns=body.columns,
             order_by=body.order_by,
             descending=body.descending,
+            filters=body.filters,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -216,3 +220,101 @@ def inventory_custom_query_csv(
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+
+# --- Branding (logo / favicon) ---
+
+# İzin verilen görsel tipleri ve uzantıları
+_ALLOWED_IMAGE_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/svg+xml": ".svg",
+    "image/x-icon": ".ico",
+    "image/vnd.microsoft.icon": ".ico",
+    "image/webp": ".webp",
+}
+_MAX_LOGO_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+def _branding_path(settings: Settings) -> Path:
+    d = Path(settings.branding_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _find_logo(settings: Settings) -> Optional[Path]:
+    d = _branding_path(settings)
+    for ext in (".png", ".svg", ".jpg", ".webp", ".ico"):
+        p = d / f"logo{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+@app.post("/api/branding/logo")
+async def upload_logo(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Admin logo yükler. Sadece görsel tipleri, en fazla 2 MB."""
+    ext = _ALLOWED_IMAGE_TYPES.get(file.content_type)
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail="Yalnızca PNG, JPG, SVG, WEBP veya ICO yükleyebilirsiniz.",
+        )
+    data = await file.read()
+    if len(data) > _MAX_LOGO_BYTES:
+        raise HTTPException(status_code=400, detail="Dosya 2 MB'tan büyük olamaz.")
+
+    d = _branding_path(settings)
+    # Eski logoları temizle (tek logo tutulur)
+    for old in d.glob("logo.*"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    (d / f"logo{ext}").write_bytes(data)
+    return {"ok": True, "type": file.content_type}
+
+
+@app.delete("/api/branding/logo")
+def delete_logo(
+    user: dict = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    d = _branding_path(settings)
+    removed = False
+    for old in d.glob("logo.*"):
+        try:
+            old.unlink()
+            removed = True
+        except OSError:
+            pass
+    return {"ok": True, "removed": removed}
+
+
+@app.get("/api/branding/logo")
+def get_logo(settings: Settings = Depends(get_settings)):
+    """Sol üst köşede gösterilecek logo (giriş gerektirmez, herkese açık)."""
+    logo = _find_logo(settings)
+    if not logo:
+        raise HTTPException(status_code=404, detail="Logo yüklenmemiş.")
+    return FileResponse(str(logo))
+
+
+@app.get("/api/branding/favicon")
+def get_favicon(settings: Settings = Depends(get_settings)):
+    """Sekmede gösterilecek favicon. Logo yoksa varsayılana yönlendirir."""
+    logo = _find_logo(settings)
+    if logo:
+        return FileResponse(str(logo))
+    # Logo yoksa boş/varsayılan — 404 yerine sessizce boş favicon
+    return Response(status_code=204)
+
+
+@app.get("/api/branding/status")
+def branding_status(settings: Settings = Depends(get_settings)):
+    """Frontend logo var mı diye buradan öğrenir."""
+    return {"has_logo": _find_logo(settings) is not None}

@@ -30,7 +30,7 @@ const ALL_ITEMS = [
   { to: '/self-servis', label: 'Self-Servis Hizmetler', key: 'self_servis' },
 ];
 
-export function AppLayout({ user, flags, children }) {
+export function AppLayout({ user, flags, brandingHasLogo, children }) {
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
 
@@ -80,7 +80,18 @@ export function AppLayout({ user, flags, children }) {
   const masthead = (
     <Masthead>
       <MastheadMain>
-        <MastheadBrand>Nöbetçi &amp; Envanter Portalı</MastheadBrand>
+        <MastheadBrand>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {brandingHasLogo && (
+              <img
+                src="/api/branding/logo"
+                alt="Logo"
+                style={{ height: 32, maxWidth: 160, objectFit: 'contain' }}
+              />
+            )}
+            <span>Middleware Portal</span>
+          </div>
+        </MastheadBrand>
       </MastheadMain>
       <MastheadContent>
         <Toolbar isFullHeight>
