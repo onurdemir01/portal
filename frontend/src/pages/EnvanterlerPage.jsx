@@ -17,45 +17,25 @@ import {
   TextArea,
   Alert,
   Spinner,
-  Split,
-  SplitItem,
-  Panel,
-  PanelMain,
-  PanelMainBody,
+  Pagination,
+  Popover,
 } from '@patternfly/react-core';
 import { Table, Thead, Tr, Th, Tbody, Td } from '@patternfly/react-table';
 import { api } from '../api';
 
-// tables: [{ real_table, display_name }] — uygulama DB'sinden gelir.
-// Şimdilik varsayılan listeyle çalışır; admin panelinden görünen adlar değişir.
-
-function ResultTable({ result }) {
-  if (!result) return null;
-  return (
-    <>
-      {result.truncated && (
-        <Alert
-          variant="warning"
-          isInline
-          title="Sonuç satır limitine ulaştı; gösterilen kayıtlar kırpılmış olabilir."
-          style={{ marginBottom: 12 }}
-        />
-      )}
-      <Table aria-label="Sonuç" variant="compact">
-        <Thead>
-          <Tr>{result.columns.map((c) => <Th key={c}>{c}</Th>)}</Tr>
-        </Thead>
-        <Tbody>
-          {result.rows.map((row, i) => (
-            <Tr key={i}>
-              {row.map((v, j) => <Td key={j}>{v === null ? '' : String(v)}</Td>)}
-            </Tr>
-          ))}
-        </Tbody>
-      </Table>
-    </>
-  );
-}
+// Yatay kaydırma + hücrelerin alt satıra kaymaması için ortak stil.
+// Tabloyu saran kutu yatay scroll alır; hücreler nowrap olur.
+const scrollBoxStyle = {
+  overflowX: 'auto',
+  width: '100%',
+  border: '1px solid var(--pf-v5-global--BorderColor--100)',
+};
+const nowrapCell = {
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: '360px',
+};
 
 function downloadCsv(columns, rows, filename) {
   const esc = (v) => {
@@ -63,7 +43,7 @@ function downloadCsv(columns, rows, filename) {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = [columns.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -72,47 +52,118 @@ function downloadCsv(columns, rows, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Sonuç tablosu: client-side pagination ile yalnızca aktif sayfayı DOM'a basar.
+// Böylece 5000 satır tek seferde render edilmez; ekran donmaz.
+function ResultTable({ result, visibleColumns }) {
+  const [page, setPage] = React.useState(1);
+  const [perPage, setPerPage] = React.useState(100);
+
+  React.useEffect(() => { setPage(1); }, [result]);
+
+  if (!result) return null;
+
+  const cols = visibleColumns || result.columns;
+  const colIndex = cols.map((c) => result.columns.indexOf(c));
+
+  const start = (page - 1) * perPage;
+  const pageRows = result.rows.slice(start, start + perPage);
+
+  return (
+    <>
+      {result.truncated && (
+        <Alert
+          variant="warning"
+          isInline
+          title={`Sonuç ${result.row_count} satırla sınırlandı; daha fazlası olabilir. Daraltmak için filtre/sorgu kullanın.`}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+
+      <Pagination
+        itemCount={result.rows.length}
+        perPage={perPage}
+        page={page}
+        perPageOptions={[
+          { title: '50', value: 50 },
+          { title: '100', value: 100 },
+          { title: '250', value: 250 },
+          { title: '500', value: 500 },
+        ]}
+        onSetPage={(_e, p) => setPage(p)}
+        onPerPageSelect={(_e, v) => { setPerPage(v); setPage(1); }}
+        isCompact
+      />
+
+      <div style={scrollBoxStyle}>
+        <Table aria-label="Sonuç" variant="compact" gridBreakPoint="">
+          <Thead>
+            <Tr>
+              {cols.map((c) => (
+                <Th key={c} style={{ whiteSpace: 'nowrap' }}>{c}</Th>
+              ))}
+            </Tr>
+          </Thead>
+          <Tbody>
+            {pageRows.map((row, i) => (
+              <Tr key={start + i}>
+                {colIndex.map((ci, j) => {
+                  const v = row[ci];
+                  const text = v === null || v === undefined ? '' : String(v);
+                  return (
+                    <Td key={j} style={nowrapCell} title={text}>{text}</Td>
+                  );
+                })}
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      </div>
+
+      <Pagination
+        itemCount={result.rows.length}
+        perPage={perPage}
+        page={page}
+        onSetPage={(_e, p) => setPage(p)}
+        onPerPageSelect={(_e, v) => { setPerPage(v); setPage(1); }}
+        variant="bottom"
+        isCompact
+      />
+    </>
+  );
+}
+
 function TableBrowser({ tables }) {
   const [tableOpen, setTableOpen] = React.useState(false);
   const [table, setTable] = React.useState(tables[0]?.real_table || '');
   const [allColumns, setAllColumns] = React.useState([]);
   const [enabled, setEnabled] = React.useState({});
-  const [orderBy, setOrderBy] = React.useState(null);
-  const [descending, setDescending] = React.useState(false);
   const [result, setResult] = React.useState(null);
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  const [colMenuOpen, setColMenuOpen] = React.useState(false);
 
-  const loadColumns = React.useCallback(async (t) => {
+  // Tablo seçilince otomatik yükle: kolonları çek + veriyi filtresiz getir.
+  const loadTable = React.useCallback(async (t) => {
     setError('');
+    setLoading(true);
+    setResult(null);
     try {
       const { columns } = await api.inventoryColumns(t);
       setAllColumns(columns);
       setEnabled(Object.fromEntries(columns.map((c) => [c, true])));
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
-
-  React.useEffect(() => { if (table) loadColumns(table); }, [table, loadColumns]);
-
-  const run = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const cols = allColumns.filter((c) => enabled[c]);
-      const res = await api.inventoryQuery(table, {
-        columns: cols,
-        order_by: orderBy,
-        descending,
-      });
+      // Filtresiz, tüm kolonlarla veriyi getir
+      const res = await api.inventoryQuery(t, { columns: null });
       setResult(res);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  React.useEffect(() => { if (table) loadTable(table); }, [table, loadTable]);
+
+  const visibleColumns = allColumns.filter((c) => enabled[c]);
 
   return (
     <>
@@ -139,16 +190,55 @@ function TableBrowser({ tables }) {
               </SelectList>
             </Select>
           </ToolbarItem>
+
+          {/* Kolon aç/kapa artık bir popover içinde — sayfayı doldurmuyor */}
           <ToolbarItem>
-            <Button variant="primary" onClick={run} isDisabled={loading}>
-              Sorgula
+            <Popover
+              isVisible={colMenuOpen}
+              shouldClose={() => setColMenuOpen(false)}
+              hasAutoWidth
+              bodyContent={
+                <div style={{ maxHeight: 320, overflowY: 'auto', minWidth: 220 }}>
+                  <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
+                    <Button variant="link" isInline onClick={() =>
+                      setEnabled(Object.fromEntries(allColumns.map((c) => [c, true])))
+                    }>Tümünü seç</Button>
+                    <Button variant="link" isInline onClick={() =>
+                      setEnabled(Object.fromEntries(allColumns.map((c) => [c, false])))
+                    }>Temizle</Button>
+                  </div>
+                  {allColumns.map((c) => (
+                    <Checkbox
+                      key={c}
+                      id={`col-${c}`}
+                      label={c}
+                      isChecked={!!enabled[c]}
+                      onChange={(_e, v) => setEnabled((p) => ({ ...p, [c]: v }))}
+                    />
+                  ))}
+                </div>
+              }
+            >
+              <Button variant="secondary" onClick={() => setColMenuOpen((o) => !o)}>
+                Kolonlar ({visibleColumns.length}/{allColumns.length})
+              </Button>
+            </Popover>
+          </ToolbarItem>
+
+          <ToolbarItem>
+            <Button variant="secondary" onClick={() => loadTable(table)} isDisabled={loading}>
+              Yenile
             </Button>
           </ToolbarItem>
           <ToolbarItem>
             <Button
               variant="secondary"
               isDisabled={!result}
-              onClick={() => downloadCsv(result.columns, result.rows, `${table}.csv`)}
+              onClick={() => downloadCsv(
+                visibleColumns,
+                result.rows.map((r) => visibleColumns.map((c) => r[result.columns.indexOf(c)])),
+                `${table}.csv`,
+              )}
             >
               CSV indir
             </Button>
@@ -156,22 +246,8 @@ function TableBrowser({ tables }) {
         </ToolbarContent>
       </Toolbar>
 
-      {allColumns.length > 0 && (
-        <div style={{ margin: '12px 0', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-          {allColumns.map((c) => (
-            <Checkbox
-              key={c}
-              id={`col-${c}`}
-              label={c}
-              isChecked={!!enabled[c]}
-              onChange={(_e, v) => setEnabled((p) => ({ ...p, [c]: v }))}
-            />
-          ))}
-        </div>
-      )}
-
       {error && <Alert variant="danger" title={error} isInline style={{ marginBottom: 12 }} />}
-      {loading ? <Spinner /> : <ResultTable result={result} />}
+      {loading ? <Spinner /> : <ResultTable result={result} visibleColumns={visibleColumns} />}
     </>
   );
 }
