@@ -16,7 +16,6 @@ import {
   ToolbarItem,
   TextArea,
   TextInput,
-  SearchInput,
   Alert,
   Spinner,
   Pagination,
@@ -176,11 +175,6 @@ function TableBrowser({ tables }) {
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
 
-  // Sunucu araması: seçili kolon + değer -> backend WHERE ile tüm tablodan çeker
-  const [searchCol, setSearchCol] = React.useState('');
-  const [searchVal, setSearchVal] = React.useState('');
-  const [searchColOpen, setSearchColOpen] = React.useState(false);
-
   const loadTable = React.useCallback(async (t, filters = null) => {
     setError('');
     setLoading(true);
@@ -199,13 +193,8 @@ function TableBrowser({ tables }) {
   }, []);
 
   React.useEffect(() => {
-    if (table) { setSearchCol(''); setSearchVal(''); loadTable(table); }
+    if (table) loadTable(table);
   }, [table, loadTable]);
-
-  const runServerSearch = () => {
-    if (!searchCol || !searchVal.trim()) { loadTable(table); return; }
-    loadTable(table, [{ column: searchCol, op: 'contains', value: searchVal.trim() }]);
-  };
 
   const visibleColumns = allColumns.filter((c) => enabled[c]);
 
@@ -277,46 +266,6 @@ function TableBrowser({ tables }) {
               )}
             >
               CSV indir
-            </Button>
-          </ToolbarItem>
-        </ToolbarContent>
-      </Toolbar>
-
-      {/* Sunucu araması: tüm tablodan (5000 limitinin ötesinden) çeker */}
-      <Toolbar>
-        <ToolbarContent>
-          <ToolbarItem>
-            <Select
-              isOpen={searchColOpen}
-              selected={searchCol}
-              onSelect={(_e, v) => { setSearchCol(v); setSearchColOpen(false); }}
-              onOpenChange={setSearchColOpen}
-              toggle={(ref) => (
-                <MenuToggle ref={ref} onClick={() => setSearchColOpen((o) => !o)} isExpanded={searchColOpen}>
-                  {searchCol || 'Sunucuda ara: kolon seç'}
-                </MenuToggle>
-              )}
-            >
-              <SelectList style={{ maxHeight: 300, overflowY: 'auto' }}>
-                {allColumns.map((c) => (
-                  <SelectOption key={c} value={c}>{c}</SelectOption>
-                ))}
-              </SelectList>
-            </Select>
-          </ToolbarItem>
-          <ToolbarItem>
-            <SearchInput
-              placeholder="Aranacak değer (tüm tabloda)"
-              value={searchVal}
-              onChange={(_e, v) => setSearchVal(v)}
-              onSearch={runServerSearch}
-              onClear={() => { setSearchVal(''); loadTable(table); }}
-              style={{ minWidth: 260 }}
-            />
-          </ToolbarItem>
-          <ToolbarItem>
-            <Button variant="primary" onClick={runServerSearch} isDisabled={loading}>
-              Sunucuda ara
             </Button>
           </ToolbarItem>
         </ToolbarContent>
