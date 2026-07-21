@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.config import Settings
+from app.services.http_client import make_async_client
 
 
 @dataclass
@@ -78,7 +79,7 @@ class NobetciService:
         ):
             return self._cache
 
-        async with httpx.AsyncClient(timeout=15, verify=True) as client:
+        async with make_async_client(self._settings, timeout=15) as client:
             resp = await client.get(self._settings.nobetci_api_url)
             resp.raise_for_status()
             data = resp.json()

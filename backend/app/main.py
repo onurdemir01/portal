@@ -32,6 +32,7 @@ from app.security.ldap_auth import LDAPAuthError, authenticate
 from app.security.query_guard import QueryValidationError
 from app.services.inventory import InventoryService, to_csv
 from app.services.nobetci import NobetciService, serialize
+from app.services.weather import WeatherService
 
 app = FastAPI(title="Middleware Portal")
 
@@ -123,6 +124,22 @@ async def nobetci_schedule(
 ):
     svc = NobetciService(settings)
     return {"schedule": [serialize(e) for e in await svc.get_schedule()]}
+
+
+# --- Hava durumu (Anasayfa) ---
+
+_weather_service: Optional[WeatherService] = None
+
+
+@app.get("/api/weather")
+async def weather(
+    user: dict = Depends(current_user),
+    settings: Settings = Depends(get_settings),
+):
+    global _weather_service
+    if _weather_service is None:
+        _weather_service = WeatherService(settings)
+    return {"cities": await _weather_service.get_all()}
 
 
 # --- Envanter ---

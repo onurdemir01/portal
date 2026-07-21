@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Spinner, Bullseye } from '@patternfly/react-core';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/LoginPage';
+import { AnasayfaPage } from './pages/AnasayfaPage';
 import { NobetcilerPage } from './pages/NobetcilerPage';
 import { EnvanterlerPage } from './pages/EnvanterlerPage';
 import { SelfServisPage } from './pages/SelfServisPage';
@@ -63,7 +64,8 @@ export default function App() {
   return (
     <AppLayout user={user} flags={{}} brandingHasLogo={brandingHasLogo}>
       <Routes>
-        <Route path="/" element={<Navigate to="/nobetciler" replace />} />
+        <Route path="/" element={<Navigate to="/anasayfa" replace />} />
+        <Route path="/anasayfa" element={<AnasayfaPage />} />
         <Route path="/nobetciler" element={<NobetcilerPage />} />
         <Route path="/envanterler" element={<EnvanterlerPage tables={DEFAULT_TABLES} />} />
         <Route path="/self-servis" element={<SelfServisPage />} />

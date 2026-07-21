@@ -25,6 +25,7 @@ import { api } from '../api';
 // Menü öğeleri feature-flag'e göre filtrelenir; admin her şeyi görür.
 
 const ALL_ITEMS = [
+  { to: '/anasayfa', label: 'Anasayfa', key: 'anasayfa' },
   { to: '/nobetciler', label: 'Nöbetçiler', key: 'nobetciler' },
   { to: '/envanterler', label: 'Envanterler', key: 'envanterler' },
   { to: '/self-servis', label: 'Self-Servis Hizmetler', key: 'self_servis' },

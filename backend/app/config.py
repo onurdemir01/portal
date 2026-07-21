@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     nobetci_api_url: str = Field(..., alias="NOBETCI_API_URL")
     nobetci_cache_seconds: int = 300
 
+    # --- Dış istekler için proxy ve SSL doğrulama ---
+    # Kurumsal proxy (iç API'lere ve internete çıkış buradan). Boşsa proxy yok.
+    # Örn: http://tekprxv2.fw.garanti.com.tr:80
+    outbound_proxy: str = Field("", alias="OUTBOUND_PROXY")
+    # Kurumsal CA sertifika dosyası (proxy TLS'i yeniden imzalıyorsa).
+    # Örn: /etc/pki/tls/certs/ca-bundle.crt veya kurumsal CA .pem yolu.
+    # Boşsa ve verify_ssl=false ise doğrulama kapatılır (iç ağ için pratik).
+    outbound_ca_bundle: str = Field("", alias="OUTBOUND_CA_BUNDLE")
+    verify_ssl: bool = Field(True, alias="VERIFY_SSL")
+
+    # --- Hava durumu (Anasayfa) ---
+    # Open-Meteo ücretsiz ve anahtarsız; internet erişimi proxy üzerinden.
+    weather_cache_seconds: int = 900
+
     # --- Envanter DB (SQL Server, ODBC) ---
     # Tam ODBC connection string ortam değişkeninden gelir.
     inventory_odbc_dsn: str = Field(..., alias="INVENTORY_ODBC_DSN")

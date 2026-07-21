@@ -31,6 +31,7 @@ export const api = {
 
   nobetciCurrent: () => req('/api/nobetciler/current'),
   nobetciSchedule: () => req('/api/nobetciler/schedule'),
+  weather: () => req('/api/weather'),
 
   inventoryColumns: (table) => req(`/api/inventory/${table}/columns`),
   inventoryQuery: (table, body) =>
