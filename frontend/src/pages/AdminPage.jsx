@@ -10,6 +10,7 @@ import {
   Split,
   SplitItem,
   Divider,
+  TextInput,
 } from '@patternfly/react-core';
 import { api } from '../api';
 
@@ -125,12 +126,147 @@ function LogoManager({ onChange }) {
   );
 }
 
+function PhotoManager() {
+  const [registryId, setRegistryId] = React.useState('');
+  const [ids, setIds] = React.useState([]);
+  const [error, setError] = React.useState('');
+  const [msg, setMsg] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const inputRef = React.useRef(null);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const r = await api.listPhotos();
+      setIds(r.registry_ids || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const onPick = () => {
+    setError('');
+    setMsg('');
+    if (!registryId.trim()) {
+      setError('Önce sicil no girin.');
+      return;
+    }
+    inputRef.current?.click();
+  };
+
+  const onFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.uploadPhoto(registryId.trim(), f);
+      setMsg(`${registryId.trim()} için fotoğraf yüklendi.`);
+      setRegistryId('');
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const onRemove = async (id) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.deletePhoto(id);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardTitle>Nöbetçi Fotoğrafları</CardTitle>
+      <CardBody>
+        <p style={{ marginBottom: 16 }}>
+          Fotoğraflar sicil no (registryId) ile eşleşir ve Anasayfa'daki Asıl
+          Nöbetçi kartında görünür. JPG, PNG veya WEBP — en fazla 2 MB.
+        </p>
+
+        {error && <Alert variant="danger" title={error} isInline style={{ marginBottom: 12 }} />}
+        {msg && <Alert variant="success" title={msg} isInline style={{ marginBottom: 12 }} />}
+
+        <Split hasGutter style={{ alignItems: 'flex-end', marginBottom: 16 }}>
+          <SplitItem>
+            <label style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>
+              Sicil no
+            </label>
+            <TextInput
+              value={registryId}
+              onChange={(_e, v) => setRegistryId(v)}
+              placeholder="örn. 722627"
+              style={{ width: 180 }}
+            />
+          </SplitItem>
+          <SplitItem>
+            <Button variant="primary" onClick={onPick} isDisabled={busy}>
+              Fotoğraf seç ve yükle
+            </Button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={onFile}
+            />
+          </SplitItem>
+        </Split>
+
+        <Divider style={{ margin: '16px 0' }} />
+
+        <div style={{ fontSize: 13, marginBottom: 8 }}>
+          Yüklü fotoğraflar ({ids.length}):
+        </div>
+        {ids.length === 0 ? (
+          <span style={{ color: 'var(--pf-v5-global--Color--200)', fontSize: 13 }}>
+            Henüz fotoğraf yüklenmemiş.
+          </span>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {ids.map((id) => (
+              <div key={id} style={{ textAlign: 'center' }}>
+                <img
+                  src={`/api/photos/${encodeURIComponent(id)}`}
+                  alt={id}
+                  style={{
+                    width: 56, height: 56, borderRadius: '50%',
+                    objectFit: 'cover', display: 'block', marginBottom: 4,
+                    border: '1px solid var(--pf-v5-global--BorderColor--100)',
+                  }}
+                />
+                <div style={{ fontSize: 12 }}>{id}</div>
+                <Button variant="link" isInline isDanger
+                  onClick={() => onRemove(id)} style={{ fontSize: 11 }}>
+                  Sil
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 export function AdminPage({ onBrandingChange }) {
   return (
     <PageSection>
       <Title headingLevel="h1">Yönetim</Title>
-      <div style={{ marginTop: 16, maxWidth: 640 }}>
+      <div style={{ marginTop: 16, maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <LogoManager onChange={onBrandingChange} />
+        <PhotoManager />
       </div>
     </PageSection>
   );

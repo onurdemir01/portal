@@ -34,32 +34,53 @@ const WEATHER_EMOJI = {
   unknown: '❓',
 };
 
-function NobetciPerson({ title, person, color }) {
+function NobetciPerson({ title, person, color, showPhoto }) {
   if (!person) return null;
+  // Fotoğraf sadece Asıl Nöbetçi'de ve sicil no varsa gösterilir.
+  const [photoOk, setPhotoOk] = React.useState(true);
+  const showImg = showPhoto && person.registry_id && photoOk;
   return (
     <Card isCompact isFullHeight>
       <CardTitle>
         {title} <Label color={color}>Bugün</Label>
       </CardTitle>
       <CardBody>
-        <DescriptionList isCompact>
-          <DescriptionListGroup>
-            <DescriptionListTerm>Ad Soyad</DescriptionListTerm>
-            <DescriptionListDescription>{person.full_name}</DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>Telefon</DescriptionListTerm>
-            <DescriptionListDescription>{person.phone || '-'}</DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>Dahili</DescriptionListTerm>
-            <DescriptionListDescription>{person.intercom || '-'}</DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>E-posta</DescriptionListTerm>
-            <DescriptionListDescription>{person.email || '-'}</DescriptionListDescription>
-          </DescriptionListGroup>
-        </DescriptionList>
+        <Split hasGutter>
+          {showImg && (
+            <SplitItem>
+              <img
+                src={`/api/photos/${encodeURIComponent(person.registry_id)}`}
+                alt={person.full_name}
+                onError={() => setPhotoOk(false)}
+                style={{
+                  width: 72, height: 72, borderRadius: '50%',
+                  objectFit: 'cover',
+                  border: '2px solid var(--pf-v5-global--BorderColor--100)',
+                }}
+              />
+            </SplitItem>
+          )}
+          <SplitItem isFilled>
+            <DescriptionList isCompact>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Ad Soyad</DescriptionListTerm>
+                <DescriptionListDescription>{person.full_name}</DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Telefon</DescriptionListTerm>
+                <DescriptionListDescription>{person.phone || '-'}</DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Dahili</DescriptionListTerm>
+                <DescriptionListDescription>{person.intercom || '-'}</DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>E-posta</DescriptionListTerm>
+                <DescriptionListDescription>{person.email || '-'}</DescriptionListDescription>
+              </DescriptionListGroup>
+            </DescriptionList>
+          </SplitItem>
+        </Split>
       </CardBody>
     </Card>
   );
@@ -132,7 +153,7 @@ export function AnasayfaPage() {
       {current ? (
         <Grid hasGutter>
           <GridItem md={6}>
-            <NobetciPerson title="Asıl Nöbetçi" person={current.primary} color="blue" />
+            <NobetciPerson title="Asıl Nöbetçi" person={current.primary} color="blue" showPhoto />
           </GridItem>
           <GridItem md={6}>
             <NobetciPerson title="Yedek Nöbetçi" person={current.backup} color="grey" />

@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # Admin panelinden yüklenen logo bu dizine kaydedilir.
     branding_dir: str = Field("./app_data/branding", alias="BRANDING_DIR")
 
+    # --- Nöbetçi fotoğrafları ---
+    # Sicil no (registryId) bazlı kaydedilir: <registryId>.<ext>
+    photos_dir: str = Field("./app_data/photos", alias="PHOTOS_DIR")
+
     # --- Ansible / AAP (Self-Servis) — sonra doldurulacak ---
     ansible_base_url: str = Field("", alias="ANSIBLE_BASE_URL")
     ansible_token: str = Field("", alias="ANSIBLE_TOKEN")

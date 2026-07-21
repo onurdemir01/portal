@@ -64,4 +64,23 @@ export const api = {
     return res.json();
   },
   deleteLogo: () => req('/api/branding/logo', { method: 'DELETE' }),
+
+  listPhotos: () => req('/api/photos'),
+  uploadPhoto: async (registryId, fileObj) => {
+    const fd = new FormData();
+    fd.append('file', fileObj);
+    const res = await fetch(`/api/photos/${encodeURIComponent(registryId)}`, {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+  deletePhoto: (registryId) =>
+    req(`/api/photos/${encodeURIComponent(registryId)}`, { method: 'DELETE' }),
 };
