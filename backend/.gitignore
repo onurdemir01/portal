@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+app_data/
+selfservice_output/
+node_modules/
+dist/
