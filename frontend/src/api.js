@@ -65,11 +65,12 @@ export const api = {
   },
   deleteLogo: () => req('/api/branding/logo', { method: 'DELETE' }),
 
-  listPhotos: () => req('/api/photos'),
-  uploadPhoto: async (registryId, fileObj) => {
+  listPhotos: () => req('/api/photos/list'),
+  photoUrlByEmail: (email) => `/api/photos/by-email?email=${encodeURIComponent(email)}`,
+  uploadPhoto: async (email, fileObj) => {
     const fd = new FormData();
     fd.append('file', fileObj);
-    const res = await fetch(`/api/photos/${encodeURIComponent(registryId)}`, {
+    const res = await fetch(`/api/photos?email=${encodeURIComponent(email)}`, {
       method: 'POST',
       credentials: 'include',
       body: fd,
@@ -81,6 +82,15 @@ export const api = {
     }
     return res.json();
   },
-  deletePhoto: (registryId) =>
-    req(`/api/photos/${encodeURIComponent(registryId)}`, { method: 'DELETE' }),
+  deletePhoto: (email) =>
+    req(`/api/photos?email=${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  deletePhotoByKey: (key) =>
+    req(`/api/photos/by-key/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+
+  getFlags: () => req('/api/flags'),
+  setFlag: (key, publicEnabled) =>
+    req('/api/flags', {
+      method: 'POST',
+      body: JSON.stringify({ key, public_enabled: publicEnabled }),
+    }),
 };

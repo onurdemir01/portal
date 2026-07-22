@@ -337,10 +337,22 @@ def branding_status(settings: Settings = Depends(get_settings)):
     return {"has_logo": _find_logo(settings) is not None}
 
 
-# --- Nöbetçi fotoğrafları (sicil no bazlı) ---
+# --- Nöbetçi fotoğrafları (e-posta bazlı) ---
 
 import re as _re
-_REGISTRY_RE = _re.compile(r"^[A-Za-z0-9_-]{1,32}$")  # güvenli sicil no
+
+
+def _email_key(email: str) -> Optional[str]:
+    """E-postayı güvenli bir dosya adı anahtarına çevirir.
+    Küçük harf + harf/rakam dışındaki karakterler '_' olur.
+    Örn: 'HakanIsc@garantibbva.com.tr' -> 'hakanisc_garantibbva_com_tr'
+    """
+    if not email or "@" not in email:
+        return None
+    key = _re.sub(r"[^a-z0-9]+", "_", email.strip().lower()).strip("_")
+    if not key or len(key) > 128:
+        return None
+    return key
 
 
 def _photos_path(settings: Settings) -> Path:
@@ -349,32 +361,32 @@ def _photos_path(settings: Settings) -> Path:
     return d
 
 
-def _find_photo(settings: Settings, registry_id: str) -> Optional[Path]:
-    if not _REGISTRY_RE.match(registry_id or ""):
+def _find_photo(settings: Settings, email: str) -> Optional[Path]:
+    key = _email_key(email)
+    if not key:
         return None
     d = _photos_path(settings)
     for ext in (".jpg", ".jpeg", ".png", ".webp"):
-        p = d / f"{registry_id}{ext}"
+        p = d / f"{key}{ext}"
         if p.exists():
             return p
     return None
 
 
-@app.post("/api/photos/{registry_id}")
+@app.post("/api/photos")
 async def upload_photo(
-    registry_id: str,
+    email: str,
     file: UploadFile = File(...),
     user: dict = Depends(require_admin),
     settings: Settings = Depends(get_settings),
 ):
-    """Admin bir sicil no için fotoğraf yükler. Sadece JPG/PNG/WEBP, en fazla 2 MB."""
-    if not _REGISTRY_RE.match(registry_id):
-        raise HTTPException(status_code=400, detail="Geçersiz sicil no.")
-    ext_map = {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/webp": ".webp",
-    }
+    """Admin bir e-posta için fotoğraf yükler. Sadece JPG/PNG/WEBP, en fazla 2 MB.
+    E-posta query parametresi olarak gelir: POST /api/photos?email=...
+    """
+    key = _email_key(email)
+    if not key:
+        raise HTTPException(status_code=400, detail="Geçerli bir e-posta girin.")
+    ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
     ext = ext_map.get(file.content_type)
     if not ext:
         raise HTTPException(status_code=400, detail="Yalnızca JPG, PNG veya WEBP.")
@@ -383,27 +395,27 @@ async def upload_photo(
         raise HTTPException(status_code=400, detail="Dosya 2 MB'tan büyük olamaz.")
 
     d = _photos_path(settings)
-    # Aynı sicil no için eski fotoğrafları temizle (tek foto tutulur)
-    for old in d.glob(f"{registry_id}.*"):
+    for old in d.glob(f"{key}.*"):
         try:
             old.unlink()
         except OSError:
             pass
-    (d / f"{registry_id}{ext}").write_bytes(data)
-    return {"ok": True, "registry_id": registry_id}
+    (d / f"{key}{ext}").write_bytes(data)
+    return {"ok": True, "email": email.strip().lower()}
 
 
-@app.delete("/api/photos/{registry_id}")
+@app.delete("/api/photos")
 def delete_photo(
-    registry_id: str,
+    email: str,
     user: dict = Depends(require_admin),
     settings: Settings = Depends(get_settings),
 ):
-    if not _REGISTRY_RE.match(registry_id):
-        raise HTTPException(status_code=400, detail="Geçersiz sicil no.")
+    key = _email_key(email)
+    if not key:
+        raise HTTPException(status_code=400, detail="Geçersiz e-posta.")
     d = _photos_path(settings)
     removed = False
-    for old in d.glob(f"{registry_id}.*"):
+    for old in d.glob(f"{key}.*"):
         try:
             old.unlink()
             removed = True
@@ -412,25 +424,89 @@ def delete_photo(
     return {"ok": True, "removed": removed}
 
 
-@app.get("/api/photos/{registry_id}")
+@app.get("/api/photos/by-email")
 def get_photo(
-    registry_id: str,
+    email: str,
     user: dict = Depends(current_user),
     settings: Settings = Depends(get_settings),
 ):
-    """Bir sicil no için fotoğrafı döner. Giriş yapmış kullanıcılara açık."""
-    photo = _find_photo(settings, registry_id)
+    """Bir e-posta için fotoğrafı döner. Giriş yapmış kullanıcılara açık."""
+    photo = _find_photo(settings, email)
     if not photo:
         raise HTTPException(status_code=404, detail="Fotoğraf yok.")
     return FileResponse(str(photo))
 
 
-@app.get("/api/photos")
+@app.get("/api/photos/list")
 def list_photos(
     user: dict = Depends(require_admin),
     settings: Settings = Depends(get_settings),
 ):
-    """Yüklenmiş fotoğrafların sicil no listesi (admin panelinde göstermek için)."""
+    """Yüklenmiş fotoğrafların anahtar listesi (admin panelinde göstermek için)."""
     d = _photos_path(settings)
-    ids = sorted({p.stem for p in d.glob("*.*")})
-    return {"registry_ids": ids}
+    keys = sorted({p.stem for p in d.glob("*.*")})
+    return {"keys": keys}
+
+
+@app.get("/api/photos/by-key/{key}")
+def get_photo_by_key(
+    key: str,
+    user: dict = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Dosya anahtarıyla fotoğraf (admin panelindeki liste için)."""
+    if not _re.match(r"^[a-z0-9_]{1,128}$", key or ""):
+        raise HTTPException(status_code=400, detail="Geçersiz anahtar.")
+    d = _photos_path(settings)
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        p = d / f"{key}{ext}"
+        if p.exists():
+            return FileResponse(str(p))
+    raise HTTPException(status_code=404, detail="Fotoğraf yok.")
+
+
+@app.delete("/api/photos/by-key/{key}")
+def delete_photo_by_key(
+    key: str,
+    user: dict = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    if not _re.match(r"^[a-z0-9_]{1,128}$", key or ""):
+        raise HTTPException(status_code=400, detail="Geçersiz anahtar.")
+    d = _photos_path(settings)
+    removed = False
+    for old in d.glob(f"{key}.*"):
+        try:
+            old.unlink()
+            removed = True
+        except OSError:
+            pass
+    return {"ok": True, "removed": removed}
+
+
+# --- Feature flag'ler (modül görünürlüğü) ---
+
+@app.get("/api/flags")
+def get_flags_endpoint(settings: Settings = Depends(get_settings)):
+    """Tüm kullanıcılar okuyabilir; frontend menüyü buna göre filtreler."""
+    from app.services.settings_store import get_flags
+    return {"flags": get_flags(settings)}
+
+
+class FlagBody(BaseModel):
+    key: str
+    public_enabled: bool
+
+
+@app.post("/api/flags")
+def set_flag_endpoint(
+    body: FlagBody,
+    user: dict = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    from app.services.settings_store import set_flag
+    try:
+        flags = set_flag(settings, body.key, body.public_enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"flags": flags}

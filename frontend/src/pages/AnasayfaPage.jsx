@@ -38,7 +38,7 @@ function NobetciPerson({ title, person, color, showPhoto }) {
   if (!person) return null;
   // Fotoğraf sadece Asıl Nöbetçi'de ve sicil no varsa gösterilir.
   const [photoOk, setPhotoOk] = React.useState(true);
-  const showImg = showPhoto && person.registry_id && photoOk;
+  const showImg = showPhoto && person.email && photoOk;
   return (
     <Card isCompact isFullHeight>
       <CardTitle>
@@ -49,7 +49,7 @@ function NobetciPerson({ title, person, color, showPhoto }) {
           {showImg && (
             <SplitItem>
               <img
-                src={`/api/photos/${encodeURIComponent(person.registry_id)}`}
+                src={api.photoUrlByEmail(person.email)}
                 alt={person.full_name}
                 onError={() => setPhotoOk(false)}
                 style={{

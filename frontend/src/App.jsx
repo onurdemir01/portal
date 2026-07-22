@@ -25,10 +25,15 @@ const DEFAULT_TABLES = [
 export default function App() {
   const [user, setUser] = React.useState(undefined); // undefined = yükleniyor
   const [brandingHasLogo, setBrandingHasLogo] = React.useState(false);
+  const [flags, setFlags] = React.useState({});
   const location = useLocation();
 
   React.useEffect(() => {
     api.me().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  const refreshFlags = React.useCallback(() => {
+    api.getFlags().then((r) => setFlags(r.flags || {})).catch(() => setFlags({}));
   }, []);
 
   const refreshBranding = React.useCallback(() => {
@@ -45,8 +50,8 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    if (user) refreshBranding();
-  }, [user, refreshBranding]);
+    if (user) { refreshBranding(); refreshFlags(); }
+  }, [user, refreshBranding, refreshFlags]);
 
   if (user === undefined) {
     return <Bullseye><Spinner /></Bullseye>;
@@ -62,7 +67,7 @@ export default function App() {
   }
 
   return (
-    <AppLayout user={user} flags={{}} brandingHasLogo={brandingHasLogo}>
+    <AppLayout user={user} flags={flags} brandingHasLogo={brandingHasLogo}>
       <Routes>
         <Route path="/" element={<Navigate to="/anasayfa" replace />} />
         <Route path="/anasayfa" element={<AnasayfaPage />} />
@@ -70,7 +75,9 @@ export default function App() {
         <Route path="/envanterler" element={<EnvanterlerPage tables={DEFAULT_TABLES} />} />
         <Route path="/self-servis" element={<SelfServisPage />} />
         {user.is_admin && (
-          <Route path="/admin" element={<AdminPage onBrandingChange={refreshBranding} />} />
+          <Route path="/admin" element={
+            <AdminPage onBrandingChange={refreshBranding} onFlagsChange={refreshFlags} />
+          } />
         )}
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
